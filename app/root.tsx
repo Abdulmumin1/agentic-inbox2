@@ -10,7 +10,7 @@ import {
 	Toasty,
 	TooltipProvider,
 } from "@cloudflare/kumo";
-import { WarningIcon } from "@phosphor-icons/react";
+import { WarningCircleIcon } from "@phosphor-icons/react";
 import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { forwardRef, useState } from "react";
 import {
@@ -22,6 +22,7 @@ import {
 	Scripts,
 	ScrollRestoration,
 } from "react-router";
+import { THEME_BOOTSTRAP_SCRIPT } from "~/hooks/useTheme";
 import { ApiError } from "~/services/api";
 import "./index.css";
 
@@ -63,23 +64,27 @@ function getQueryClient() {
 	return browserQueryClient;
 }
 
+/**
+ * Bridges Kumo's link-rendering components (Sidebar, Link, LinkButton…) to
+ * React Router so internal navigation stays client-side.
+ */
 const KumoLink = forwardRef<
 	HTMLAnchorElement,
-	React.AnchorHTMLAttributes<HTMLAnchorElement> & { href?: string }
->(function KumoLink({ href, ...props }, ref) {
-	if (href && !href.startsWith("http")) {
-		return (
-			<RouterLink to={href} ref={ref} {...(props as Record<string, unknown>)} />
-		);
+	React.AnchorHTMLAttributes<HTMLAnchorElement> & { href?: string; to?: string }
+>(function KumoLink({ href, to: _to, ...props }, ref) {
+	if (href && !/^[a-z]+:/i.test(href) && !href.startsWith("//")) {
+		return <RouterLink to={href} ref={ref} {...props} />;
 	}
 	return <a href={href} ref={ref} {...props} />;
 });
 
 export function Layout({ children }: { children: React.ReactNode }) {
 	return (
-		<html lang="en">
+		<html lang="en" suppressHydrationWarning>
 			<head>
 				<meta charSet="UTF-8" />
+				{/* Apply the saved theme before first paint to avoid a flash. */}
+				<script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
 				<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 				<link
 					rel="icon"
@@ -87,12 +92,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
 					href="/favicon.ico"
 					sizes="48x48 32x32 16x16"
 				/>
-				<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+				<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 				<title>Agentic Inbox</title>
 				<Meta />
 				<Links />
 			</head>
-			<body className="bg-kumo-recessed text-kumo-default antialiased">
+			<body className="bg-kumo-recessed text-kumo-default">
 				{children}
 				<ScrollRestoration />
 				<Scripts />
@@ -103,8 +108,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 export function HydrateFallback() {
 	return (
-		<div className="flex items-center justify-center h-screen">
-			<Loader size="lg" />
+		<div className="flex h-dvh items-center justify-center">
+			<Loader size={24} />
 		</div>
 	);
 }
@@ -116,7 +121,7 @@ export default function App() {
 	return (
 		<QueryClientProvider client={queryClient}>
 			<LinkProvider component={KumoLink}>
-				<TooltipProvider>
+				<TooltipProvider delay={400}>
 					<Toasty>
 						<Outlet />
 					</Toasty>
@@ -129,10 +134,8 @@ export default function App() {
 export function ErrorBoundary({ error }: { error: unknown }) {
 	let title = "Something went wrong";
 	let description = "An unexpected error occurred. Please try again.";
-	let status: number | null = null;
 
 	if (isRouteErrorResponse(error)) {
-		status = error.status;
 		if (error.status === 404) {
 			title = "Page not found";
 			description =
@@ -146,10 +149,10 @@ export function ErrorBoundary({ error }: { error: unknown }) {
 	}
 
 	return (
-		<div className="flex items-center justify-center min-h-screen p-8">
+		<div className="flex min-h-dvh items-center justify-center p-8">
 			<Empty
-				icon={<WarningIcon size={48} className="text-kumo-inactive" />}
-				title={status === 404 ? "404 — Page not found" : title}
+				icon={<WarningCircleIcon size={40} className="text-kumo-subtle" />}
+				title={title}
 				description={description}
 				contents={
 					<Button
@@ -158,7 +161,7 @@ export function ErrorBoundary({ error }: { error: unknown }) {
 							window.location.href = "/";
 						}}
 					>
-						Go Home
+						Go home
 					</Button>
 				}
 			/>

@@ -149,6 +149,15 @@ export function getSignatureBlock(settings?: {
 }
 
 /**
+ * Plain text for quoting, keeping paragraph and line breaks where the DOM is
+ * available (stripHtml flattens everything onto one line).
+ */
+export function toQuotableText(body: string): string {
+	if (typeof document === "undefined") return stripHtml(body);
+	return htmlToPlainText(body).replace(/\n{3,}/g, "\n\n");
+}
+
+/**
  * Build a quoted reply block HTML string from original email data.
  */
 export function buildQuotedReplyBlock(
@@ -166,7 +175,7 @@ export function buildQuotedReplyBlock(
 	// The original HTML renders safely in the sandboxed iframe, but quoted
 	// reply blocks are injected into the compose editor where raw HTML would
 	// execute. Convert to escaped plain text instead.
-	const bodyToQuote = escapeHtml(stripHtml(body)).replace(/\n/g, "<br>");
+	const bodyToQuote = escapeHtml(toQuotableText(body)).replace(/\n/g, "<br>");
 
 	return `<br><blockquote style="border-left: 2px solid #ccc; margin: 0; padding-left: 1em; color: #666;">On ${formattedDate}, ${escapedSender} wrote:<br><br>${bodyToQuote}</blockquote>`;
 }

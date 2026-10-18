@@ -2,27 +2,54 @@
 // Licensed under the Apache 2.0 license found in the LICENSE file or at:
 //     https://opensource.org/licenses/Apache-2.0
 
+import { Sidebar, useSidebar } from "@cloudflare/kumo";
 import { useEffect, useRef } from "react";
 import { Outlet, useParams } from "react-router";
-import AgentSidebar from "~/components/AgentSidebar";
-import ComposeEmail from "~/components/ComposeEmail";
-import Header from "~/components/Header";
-import Sidebar from "~/components/Sidebar";
-import { useMailbox } from "~/queries/mailboxes";
+import AgentDock from "~/components/AgentDock";
+import MailSidebar from "~/components/MailSidebar";
+import { useKeyboardShortcuts } from "~/hooks/useKeyboardShortcuts";
 import { useUIStore } from "~/hooks/useUIStore";
+import { useMailbox } from "~/queries/mailboxes";
+
+const SIDEBAR_KEY = "agentic-inbox:sidebar";
+
+/**
+ * Restores the desktop sidebar state after hydration. The server always
+ * renders it expanded; on narrower laptops we start collapsed to give the
+ * reading pane room, unless the user has chosen otherwise.
+ */
+function SidebarStateSync({ skipPersist }: { skipPersist: React.MutableRefObject<boolean> }) {
+	const { setOpen } = useSidebar();
+	const synced = useRef(false);
+
+	useEffect(() => {
+		if (synced.current) return;
+		synced.current = true;
+		// Phones use the slide-over sheet; the rail state doesn't apply.
+		if (window.matchMedia("(max-width: 767px)").matches) return;
+		const stored = window.localStorage.getItem(SIDEBAR_KEY);
+		const open = stored ? stored === "open" : window.innerWidth >= 1280;
+		skipPersist.current = true;
+		setOpen(open);
+		skipPersist.current = false;
+	}, [setOpen, skipPersist]);
+
+	return null;
+}
 
 export default function MailboxRoute() {
 	const { mailboxId } = useParams<{ mailboxId: string }>();
 	// Prefetch mailbox data for child components
 	useMailbox(mailboxId);
 	const prevMailboxIdRef = useRef<string | undefined>(undefined);
-	const {
-		isSidebarOpen,
-		closeSidebar,
-		isAgentPanelOpen,
-		closePanel,
-		closeComposeModal,
-	} = useUIStore();
+	const skipPersist = useRef(false);
+	const { closePanel, hydrateAgentPanel } = useUIStore();
+
+	useKeyboardShortcuts();
+
+	useEffect(() => {
+		hydrateAgentPanel();
+	}, [hydrateAgentPanel]);
 
 	useEffect(() => {
 		if (
@@ -31,52 +58,38 @@ export default function MailboxRoute() {
 			prevMailboxIdRef.current !== mailboxId
 		) {
 			closePanel();
-			closeComposeModal();
-			closeSidebar();
 		}
-
 		prevMailboxIdRef.current = mailboxId;
-	}, [mailboxId, closeComposeModal, closePanel, closeSidebar]);
+	}, [mailboxId, closePanel]);
 
 	return (
-		<div className="flex h-screen overflow-hidden">
-			{/* Mobile sidebar overlay backdrop */}
-			{isSidebarOpen && (
-				<div
-					className="fixed inset-0 z-30 bg-black/30 md:hidden"
-					onClick={closeSidebar}
-					onKeyDown={(e) => e.key === "Escape" && closeSidebar()}
-					role="button"
-					tabIndex={-1}
-					aria-label="Close sidebar"
-				/>
-			)}
+		<Sidebar.Provider
+			defaultOpen
+			variant="inset"
+			collapsible="icon"
+			peekable={false}
+			className="h-dvh min-h-0! overflow-hidden"
+			style={
+				{
+					"--sidebar-bg": "var(--color-kumo-recessed)",
+					"--sidebar-active-bg":
+						"color-mix(in oklab, var(--color-kumo-fill) 75%, transparent)",
+				} as React.CSSProperties
+			}
+			onOpenChange={(open) => {
+				if (!skipPersist.current) {
+					window.localStorage.setItem(SIDEBAR_KEY, open ? "open" : "closed");
+				}
+			}}
+		>
+			<SidebarStateSync skipPersist={skipPersist} />
+			<MailSidebar />
 
-			{/* Sidebar: hidden on mobile by default, shown as overlay when open */}
-			<div
-				className={`fixed inset-y-0 left-0 z-40 w-64 transform transition-transform duration-200 ease-in-out md:relative md:translate-x-0 md:z-0 ${
-					isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-				}`}
-			>
-				<Sidebar />
-			</div>
+			<main className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-kumo-base md:my-2 md:mr-2 md:rounded-xl md:border md:border-kumo-hairline md:shadow-xs">
+				<Outlet />
+			</main>
 
-			{/* Main content */}
-			<div className="flex-1 flex flex-col min-w-0 bg-kumo-base">
-				<Header />
-				<main className="flex-1 overflow-hidden">
-					<Outlet />
-				</main>
-			</div>
-
-			{/* Agent + MCP sidebar -- togglable on desktop */}
-			{isAgentPanelOpen && (
-				<div className="hidden lg:flex w-[380px] shrink-0 border-l border-kumo-line flex-col bg-kumo-base overflow-hidden">
-					<AgentSidebar />
-				</div>
-			)}
-
-			<ComposeEmail />
-		</div>
+			<AgentDock />
+		</Sidebar.Provider>
 	);
 }

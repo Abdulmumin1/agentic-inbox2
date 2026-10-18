@@ -3,6 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 import { Button, Dialog } from "@cloudflare/kumo";
+import { DownloadSimpleIcon } from "@phosphor-icons/react";
 import { downloadFile } from "~/lib/utils";
 import type { Email } from "~/types";
 
@@ -71,47 +72,31 @@ export default function EmailPanelDialogs({
 					if (!open) onCloseSource();
 				}}
 			>
-				<Dialog size="lg">
-					<Dialog.Title>
-						Email Source Headers
-						{sourceViewEmail && (
-							<span className="text-sm font-normal text-kumo-subtle ml-2">
-								{sourceViewEmail.subject}
-							</span>
-						)}
-					</Dialog.Title>
+				<Dialog size="lg" className="p-6">
+					<Dialog.Title className="text-base font-semibold">Message headers</Dialog.Title>
 					{sourceViewEmail && (
-						<div className="mt-4 max-h-[60vh] overflow-y-auto">
-							<table className="w-full text-sm border-collapse">
-								<tbody>
-									{sourceHeaders.map((header, idx) => (
-										<tr
-											key={`${header.key}-${idx}`}
-											className={idx % 2 === 0 ? "bg-kumo-tint/50" : ""}
-										>
-											<td className="py-1.5 px-3 font-mono font-semibold text-kumo-default whitespace-nowrap align-top w-[160px]">
-												{header.key}
-											</td>
-											<td className="py-1.5 px-3 font-mono text-kumo-subtle break-all">
-												{header.value}
-											</td>
-										</tr>
-									))}
-								</tbody>
-							</table>
-							{sourceHeaders.length === 0 && (
-								<p className="text-sm text-kumo-subtle text-center py-8">
-									No header data available for this email.
-								</p>
-							)}
-						</div>
+						<Dialog.Description className="mt-0.5 truncate text-sm text-kumo-subtle">
+							{sourceViewEmail.subject}
+						</Dialog.Description>
 					)}
-					<div className="flex justify-end mt-4">
-						<Dialog.Close>
-							<Button variant="secondary" size="sm">
-								Close
-							</Button>
-						</Dialog.Close>
+					<div className="mt-4 max-h-[60vh] overflow-auto rounded-lg ring-1 ring-kumo-hairline">
+						{sourceHeaders.length === 0 ? (
+							<p className="py-8 text-center text-sm text-kumo-subtle">
+								No header data available for this email.
+							</p>
+						) : (
+							<dl className="divide-y divide-kumo-hairline font-mono text-xs">
+								{sourceHeaders.map((header, idx) => (
+									<div key={`${header.key}-${idx}`} className="grid grid-cols-[140px_1fr] gap-3 px-3 py-2">
+										<dt className="truncate font-semibold text-kumo-default">{header.key}</dt>
+										<dd className="break-all text-kumo-subtle">{header.value}</dd>
+									</div>
+								))}
+							</dl>
+						)}
+					</div>
+					<div className="mt-5 flex justify-end">
+						<Dialog.Close render={(props) => <Button {...props} variant="secondary">Close</Button>} />
 					</div>
 				</Dialog>
 			</Dialog.Root>
@@ -122,34 +107,28 @@ export default function EmailPanelDialogs({
 					if (!open) onClosePreview();
 				}}
 			>
-				<Dialog size="lg">
-					<Dialog.Title>{previewImage?.filename}</Dialog.Title>
+				<Dialog size="xl" className="p-6">
+					<Dialog.Title className="truncate text-base font-semibold">{previewImage?.filename}</Dialog.Title>
 					{previewImage && (
-						<div className="mt-4 flex flex-col items-center justify-center bg-kumo-tint/30 rounded-lg p-4 min-h-[200px]">
+						<div className="mt-4 flex min-h-[200px] items-center justify-center rounded-lg bg-kumo-recessed p-4">
 							<img
 								src={previewImage.url}
 								alt={previewImage.filename}
-								className="max-w-full max-h-[70vh] object-contain rounded shadow-sm"
+								className="max-h-[65vh] max-w-full rounded object-contain"
 							/>
 						</div>
 					)}
-					<div className="flex justify-between items-center mt-4">
+					<div className="mt-5 flex items-center justify-between">
 						<Button
 							variant="secondary"
-							size="sm"
+							icon={<DownloadSimpleIcon size={16} />}
 							onClick={() => {
-								if (previewImage) {
-									downloadFile(previewImage.url, previewImage.filename);
-								}
+								if (previewImage) downloadFile(previewImage.url, previewImage.filename);
 							}}
 						>
-							Download Original
+							Download
 						</Button>
-						<Dialog.Close>
-							<Button variant="primary" size="sm">
-								Close
-							</Button>
-						</Dialog.Close>
+						<Dialog.Close render={(props) => <Button {...props} variant="primary">Done</Button>} />
 					</div>
 				</Dialog>
 			</Dialog.Root>

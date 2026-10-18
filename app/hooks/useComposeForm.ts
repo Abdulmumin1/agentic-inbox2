@@ -11,9 +11,10 @@ import {
 	getSignatureBlock,
 	htmlToPlainText,
 	splitEmailList,
-	stripHtml,
 	toEmailListValue,
+	toQuotableText,
 } from "~/lib/utils";
+import { splitQuotedHtml } from "~/lib/quotes";
 import { useDeleteEmail, useForwardEmail, useReplyToEmail, useSaveDraft, useSendEmail } from "~/queries/emails";
 import { useMailbox } from "~/queries/mailboxes";
 import { useUIStore } from "~/hooks/useUIStore";
@@ -65,7 +66,7 @@ function buildForwardBody(
 ) {
 	const safeSender = escapeHtml(original.sender);
 	const safeSubject = escapeHtml(original.subject);
-	const safeBody = escapeHtml(stripHtml(original.body || "")).replace(/\n/g, "<br>");
+	const safeBody = escapeHtml(toQuotableText(original.body || "")).replace(/\n/g, "<br>");
 
 	return `<p><br></p>${sigBlock ? `${sigBlock}<br>` : ""}<div style="border: 1px solid #ddd; padding: 1em; background-color: #f9f9f9; margin: 1em 0;"><strong>Forwarded message:</strong><br><strong>From:</strong> ${safeSender}<br><strong>Date:</strong> ${formatComposeDate(original.date)}<br><strong>Subject:</strong> ${safeSubject}<br><br>${safeBody}</div>`;
 }
@@ -178,6 +179,8 @@ export function useComposeForm(mailboxId?: string, _folder?: string) {
 	const [showCcBcc, setShowCcBcc] = useState(false);
 	const [subject, setSubject] = useState("");
 	const [body, setBody] = useState("");
+	// Quoted history, folded out of the editor behind "•••" and re-attached on send.
+	const [quoted, setQuoted] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [isSavingDraft, setIsSavingDraft] = useState(false);
 	const [isSending, setIsSending] = useState(false);
@@ -185,8 +188,8 @@ export function useComposeForm(mailboxId?: string, _folder?: string) {
 	const isDraftEdit = !!composeOptions.draftEmail;
 
 	const formTitle = useMemo(() => {
-		if (isDraftEdit) return "Edit Draft";
-		switch (composeOptions.mode) { case "reply": return "Reply"; case "reply-all": return "Reply All"; case "forward": return "Forward"; default: return "New Message"; }
+		if (isDraftEdit) return "Edit draft";
+		switch (composeOptions.mode) { case "reply": return "Reply"; case "reply-all": return "Reply all"; case "forward": return "Forward"; default: return "New message"; }
 	}, [composeOptions.mode, isDraftEdit]);
 
 	const sigBlock = useMemo(() => getSignatureBlock(currentMailbox?.settings), [currentMailbox]);
@@ -206,7 +209,15 @@ export function useComposeForm(mailboxId?: string, _folder?: string) {
 		setBcc(initialFields.bcc);
 		setShowCcBcc(initialFields.showCcBcc);
 		setSubject(initialFields.subject);
-		setBody(initialFields.body);
+		const trimQuote =
+			composeOptions.mode === "reply" ||
+			composeOptions.mode === "reply-all" ||
+			Boolean(composeOptions.draftEmail);
+		const { main, quoted: quotedHistory } = trimQuote
+			? splitQuotedHtml(initialFields.body)
+			: { main: initialFields.body, quoted: "" };
+		setBody(main);
+		setQuoted(quotedHistory);
 	}, [composeOptions, currentMailbox?.email, sigBlock]);
 
 	const handleSaveDraft = async () => {
@@ -217,12 +228,12 @@ export function useComposeForm(mailboxId?: string, _folder?: string) {
 				cc: cc || undefined,
 				bcc: bcc || undefined,
 				subject,
-				body,
+				body: `${body}${quoted}`,
 				in_reply_to: composeOptions.originalEmail?.id || composeOptions.draftEmail?.in_reply_to || undefined,
 				thread_id: composeOptions.originalEmail?.thread_id || composeOptions.draftEmail?.thread_id || undefined,
 				draft_id: composeOptions.draftEmail?.id || undefined,
 			} });
-			toastManager.add({ title: "Draft saved!" });
+			toastManager.add({ title: "Draft saved", variant: "success" });
 		}
 		catch (err: unknown) {
 			const message = (err instanceof Error ? err.message : null) || "Failed to save draft.";
@@ -246,21 +257,28 @@ export function useComposeForm(mailboxId?: string, _folder?: string) {
 			bcc: toEmailListValue(bccRecipients),
 			from,
 			subject,
-			html: body,
-			text: htmlToPlainText(body),
+			html: `${body}${quoted}`,
+			text: htmlToPlainText(`${body}${quoted}`),
 		};
 		const draftId = composeOptions.draftEmail?.id; const mode = composeOptions.mode; const originalId = composeOptions.originalEmail?.id || composeOptions.draftEmail?.in_reply_to;
-		setIsSending(true); toastManager.add({ title: "Sending email..." });
+		setIsSending(true);
 		try {
 			if ((mode === "reply" || mode === "reply-all") && originalId) await replyMutation.mutateAsync({ mailboxId, emailId: originalId, email: emailData });
 			else if (mode === "forward" && originalId) await forwardMutation.mutateAsync({ mailboxId, emailId: originalId, email: emailData });
 			else await sendEmailMutation.mutateAsync({ mailboxId, email: emailData });
 			if (draftId) deleteEmailMutation.mutate({ mailboxId, id: draftId });
-			toastManager.add({ title: "Email sent!" });
+			toastManager.add({ title: "Message sent", variant: "success" });
 			onClose();
 		} catch (err: unknown) { const message = (err instanceof Error ? err.message : null) || "Failed to send email."; setError(message); toastManager.add({ title: message, variant: "error" }); }
 		finally { setIsSending(false); }
 	};
 
-	return { to, setTo, cc, setCc, bcc, setBcc, showCcBcc, setShowCcBcc, subject, setSubject, body, setBody, error, setError, isSavingDraft, isSending, formTitle, handleSaveDraft, handleSend, closeCompose, closePanel };
+	/** Pull the folded history back into the editor (the "•••" button). */
+	const expandQuoted = () => {
+		if (!quoted) return;
+		setBody((current) => `${current}${quoted}`);
+		setQuoted("");
+	};
+
+	return { to, setTo, cc, setCc, bcc, setBcc, showCcBcc, setShowCcBcc, subject, setSubject, body, setBody, quoted, expandQuoted, error, setError, isSavingDraft, isSending, formTitle, handleSaveDraft, handleSend, closeCompose, closePanel };
 }

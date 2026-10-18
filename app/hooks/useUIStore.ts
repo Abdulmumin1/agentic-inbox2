@@ -14,8 +14,23 @@ export interface ComposeOptions {
 	draftEmail?: Email | null;
 }
 
+const AGENT_PANEL_KEY = "agentic-inbox:agent-panel";
+
+function readAgentPanelPreference(): boolean | null {
+	if (typeof window === "undefined") return null;
+	const stored = window.localStorage.getItem(AGENT_PANEL_KEY);
+	if (stored === "open") return true;
+	if (stored === "closed") return false;
+	return null;
+}
+
+function persistAgentPanel(open: boolean) {
+	if (typeof window === "undefined") return;
+	window.localStorage.setItem(AGENT_PANEL_KEY, open ? "open" : "closed");
+}
+
 interface UIState {
-	// Side panel state
+	// Reading pane
 	selectedEmailId: string | null;
 	isComposing: boolean;
 	_previousEmailId: string | null;
@@ -27,20 +42,17 @@ interface UIState {
 	// Compose options
 	composeOptions: ComposeOptions;
 
-	// Mobile sidebar
-	isSidebarOpen: boolean;
-	openSidebar: () => void;
-	closeSidebar: () => void;
-	toggleSidebar: () => void;
-
 	// Agent panel
 	isAgentPanelOpen: boolean;
+	/** Resolve the initial panel state from storage / viewport (client only). */
+	hydrateAgentPanel: () => void;
+	setAgentPanelOpen: (open: boolean) => void;
 	toggleAgentPanel: () => void;
 
-	// Legacy dialog support (kept for non-split views)
-	isComposeModalOpen: boolean;
-	openComposeModal: (options?: ComposeOptions) => void;
-	closeComposeModal: () => void;
+	/** A prompt queued from elsewhere in the UI for the agent to run. */
+	pendingAgentPrompt: string | null;
+	askAgent: (prompt: string) => void;
+	consumeAgentPrompt: () => string | null;
 }
 
 export const useUIStore = create<UIState>((set, get) => ({
@@ -48,9 +60,8 @@ export const useUIStore = create<UIState>((set, get) => ({
 	isComposing: false,
 	_previousEmailId: null,
 	composeOptions: { mode: "new", originalEmail: null },
-	isComposeModalOpen: false,
-	isSidebarOpen: false,
-	isAgentPanelOpen: true,
+	isAgentPanelOpen: false,
+	pendingAgentPrompt: null,
 
 	selectEmail: (id) => set({ selectedEmailId: id, isComposing: false }),
 
@@ -64,11 +75,16 @@ export const useUIStore = create<UIState>((set, get) => ({
 				// Keep selectedEmailId when replying/forwarding so the thread stays visible
 				selectedEmailId: isReplyOrForward ? state.selectedEmailId : null,
 				composeOptions: options || { mode: "new", originalEmail: null },
-				isSidebarOpen: false,
 			};
 		}),
 
-	closePanel: () => set({ selectedEmailId: null, isComposing: false, _previousEmailId: null, composeOptions: { mode: "new" as const, originalEmail: null } }),
+	closePanel: () =>
+		set({
+			selectedEmailId: null,
+			isComposing: false,
+			_previousEmailId: null,
+			composeOptions: { mode: "new" as const, originalEmail: null },
+		}),
 
 	closeCompose: () =>
 		set((state) => ({
@@ -78,21 +94,32 @@ export const useUIStore = create<UIState>((set, get) => ({
 			composeOptions: { mode: "new" as const, originalEmail: null },
 		})),
 
-	openSidebar: () => set({ isSidebarOpen: true }),
-	closeSidebar: () => set({ isSidebarOpen: false }),
-	toggleSidebar: () => set({ isSidebarOpen: !get().isSidebarOpen }),
+	hydrateAgentPanel: () => {
+		const stored = readAgentPanelPreference();
+		// Default: open only when there is room to dock it beside the reader.
+		const open = stored ?? window.matchMedia("(min-width: 1600px)").matches;
+		set({ isAgentPanelOpen: open });
+	},
 
-	toggleAgentPanel: () => set({ isAgentPanelOpen: !get().isAgentPanelOpen }),
+	setAgentPanelOpen: (open) => {
+		persistAgentPanel(open);
+		set({ isAgentPanelOpen: open });
+	},
 
-	openComposeModal: (options) =>
-		set({
-			composeOptions: options || { mode: "new", originalEmail: null },
-			isComposeModalOpen: true,
-		}),
+	toggleAgentPanel: () => {
+		const next = !get().isAgentPanelOpen;
+		persistAgentPanel(next);
+		set({ isAgentPanelOpen: next });
+	},
 
-	closeComposeModal: () =>
-		set({
-			isComposeModalOpen: false,
-			composeOptions: { mode: "new", originalEmail: null },
-		}),
+	askAgent: (prompt) => {
+		persistAgentPanel(true);
+		set({ pendingAgentPrompt: prompt, isAgentPanelOpen: true });
+	},
+
+	consumeAgentPrompt: () => {
+		const prompt = get().pendingAgentPrompt;
+		if (prompt) set({ pendingAgentPrompt: null });
+		return prompt;
+	},
 }));
